@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, memo } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
@@ -16,6 +16,7 @@ import {
   Tag,
   AlertTriangle,
   Package,
+  Loader2,
 } from "lucide-react";
 
 interface Product {
@@ -42,6 +43,9 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [sortField, setSortField] = useState<"name" | "price" | "stock" | "sort_order">("sort_order");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  // Loading state for button operations - prevents double clicks
+  const [loadingProductId, setLoadingProductId] = useState<string | null>(null);
 
   const supabase = createClient();
 
@@ -113,57 +117,105 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
       return (a.sort_order - b.sort_order) * dir;
     });
 
-  const handleSort = (field: typeof sortField) => {
+  const handleSort = useCallback((field: typeof sortField) => {
     if (sortField === field) {
       setSortDir(sortDir === "asc" ? "desc" : "asc");
     } else {
       setSortField(field);
       setSortDir("asc");
     }
-  };
+  }, [sortField, sortDir]);
 
-  const handleToggleVisible = async (product: Product) => {
-    const { error } = await supabase
-      .from("products")
-      .update({ is_visible: !product.is_visible })
-      .eq("id", product.id);
+  // Optimistic UI - updates immediately, rolls back on error
+  const handleToggleVisible = useCallback(async (product: Product) => {
+    if (loadingProductId) return; // Prevent double clicks
 
-    if (error) {
-      toast.error("Güncelleme başarısız.");
-      return;
-    }
-
+    // Immediately update UI (optimistic)
+    const previousState = product.is_visible;
     setProducts((prev) =>
       prev.map((p) =>
         p.id === product.id ? { ...p, is_visible: !p.is_visible } : p
       )
     );
-    toast.success(
-      !product.is_visible ? "Ürün görünür yapıldı." : "Ürün gizlendi."
-    );
-  };
 
-  const handleDelete = async (id: string) => {
-    const { error } = await supabase.from("products").delete().eq("id", id);
+    // Set loading state
+    setLoadingProductId(product.id);
 
-    if (error) {
-      toast.error("Silme işlemi başarısız.");
-      return;
+    try {
+      const { error } = await supabase
+        .from("products")
+        .update({ is_visible: !product.is_visible })
+        .eq("id", product.id);
+
+      if (error) {
+        // Rollback on error
+        setProducts((prev) =>
+          prev.map((p) =>
+            p.id === product.id ? { ...p, is_visible: previousState } : p
+          )
+        );
+        toast.error("Güncelleme başarısız.");
+      } else {
+        toast.success(
+          !product.is_visible ? "Ürün görünür yapıldı." : "Ürün gizlendi."
+        );
+      }
+    } catch (e) {
+      // Rollback on exception
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === product.id ? { ...p, is_visible: previousState } : p
+        )
+      );
+      toast.error("Güncelleme başarısız.");
+    } finally {
+      setLoadingProductId(null);
     }
+  }, [supabase, loadingProductId]);
 
+  // Optimistic UI - removes immediately, rolls back on error
+  const handleDelete = useCallback(async (id: string) => {
+    if (loadingProductId) return; // Prevent double clicks
+
+    // Store current products for rollback
+    const previousProducts = products;
+
+    // Immediately remove from UI (optimistic)
     setProducts((prev) => prev.filter((p) => p.id !== id));
-    setDeleteConfirm(null);
-    toast.success("Ürün silindi.");
-  };
 
-  const SortIcon = ({ field }: { field: typeof sortField }) => {
+    // Set loading state
+    setLoadingProductId(id);
+
+    try {
+      const { error } = await supabase.from("products").delete().eq("id", id);
+
+      if (error) {
+        // Rollback on error
+        setProducts(previousProducts);
+        toast.error("Silme işlemi başarısız.");
+        return;
+      }
+
+      setDeleteConfirm(null);
+      toast.success("Ürün silindi.");
+    } catch (e) {
+      // Rollback on exception
+      setProducts(previousProducts);
+      toast.error("Silme işlemi başarısız.");
+    } finally {
+      setLoadingProductId(null);
+    }
+  }, [supabase, products, loadingProductId]);
+
+  const SortIcon = memo(({ field }: { field: typeof sortField }) => {
     if (sortField !== field) return <ChevronUp className="w-3 h-3 opacity-30" />;
     return sortDir === "asc" ? (
       <ChevronUp className="w-3 h-3 text-emerald-400" />
     ) : (
       <ChevronDown className="w-3 h-3 text-emerald-400" />
     );
-  };
+  });
+  SortIcon.displayName = "SortIcon";
 
   return (
     <div>
@@ -319,7 +371,7 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
                       >
                         {product.stock === 0 && (
                           <AlertTriangle className="w-3 h-3" />
-                        )}
+)}
                         {product.stock}
                       </span>
                     </td>
@@ -328,13 +380,16 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
                     <td className="px-4 py-3">
                       <button
                         onClick={() => handleToggleVisible(product)}
+                        disabled={loadingProductId === product.id}
                         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
                           product.is_visible
                             ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
                             : "bg-slate-700 text-slate-400 hover:bg-slate-600"
-                        }`}
+                        } ${loadingProductId === product.id ? "opacity-50 cursor-not-allowed" : ""}`}
                       >
-                        {product.is_visible ? (
+                        {loadingProductId === product.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : product.is_visible ? (
                           <>
                             <Eye className="w-3 h-3" />
                             Görünür
@@ -360,7 +415,7 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
                       <div className="flex items-center justify-end gap-2">
                         <Link
                           href={`/admin/products/${product.id}/edit`}
-                          className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
+className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
                           title="Düzenle"
                         >
                           <Edit className="w-4 h-4" />
@@ -369,13 +424,19 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
                           <div className="flex items-center gap-1">
                             <button
                               onClick={() => handleDelete(product.id)}
-                              className="px-2.5 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded-lg transition-all"
+                              disabled={loadingProductId === product.id}
+                              className="px-2.5 py-1 bg-red-500 hover:bg-red-600 disabled:bg-red-800 disabled:cursor-not-allowed text-white text-xs rounded-lg transition-all flex items-center gap-1"
                             >
-                              Evet
+                              {loadingProductId === product.id ? (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              ) : (
+                                "Evet"
+                              )}
                             </button>
                             <button
                               onClick={() => setDeleteConfirm(null)}
-                              className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded-lg transition-all"
+                              disabled={loadingProductId === product.id}
+                              className="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white text-xs rounded-lg transition-all"
                             >
                               İptal
                             </button>
@@ -408,4 +469,3 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
     </div>
   );
 }
-

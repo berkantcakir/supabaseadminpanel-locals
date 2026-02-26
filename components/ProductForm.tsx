@@ -79,8 +79,8 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
 
   const [saving, setSaving] = useState(false);
 
-  // Görüntü işlemleri
-  const handleImageSelect = (file: File) => {
+  // Image selection handler
+  const handleImageSelect = useCallback((file: File) => {
     if (!file.type.startsWith("image/")) {
       toast.error("Lütfen bir resim dosyası seçin.");
       return;
@@ -92,35 +92,36 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
     setImageFile(file);
     const previewUrl = URL.createObjectURL(file);
     setImagePreview(previewUrl);
-  };
+  }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleImageSelect(file);
-  };
+  }, [handleImageSelect]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files?.[0];
     if (file) handleImageSelect(file);
-  }, []);
+  }, [handleImageSelect]);
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
-  };
+  }, []);
 
-  const handleDragLeave = () => setIsDragging(false);
+  const handleDragLeave = useCallback(() => setIsDragging(false), []);
 
-  const handleRemoveImage = () => {
+  const handleRemoveImage = useCallback(() => {
     setImageFile(null);
     setImagePreview("");
     setImageUrl("");
     if (fileInputRef.current) fileInputRef.current.value = "";
-  };
+  }, []);
 
-  const uploadImage = async (file: File): Promise<string | null> => {
+  // Image upload with loading state
+  const uploadImage = useCallback(async (file: File): Promise<string | null> => {
     setUploadingImage(true);
     try {
       const ext = file.name.split(".").pop();
@@ -150,9 +151,10 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
     } finally {
       setUploadingImage(false);
     }
-  };
+  }, [supabase]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Form submission with optimistic UI
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!name.trim()) {
@@ -169,7 +171,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
     try {
       let finalImageUrl = imageUrl;
 
-      // Yeni resim seçildiyse yükle
+      // Upload new image if selected
       if (imageFile) {
         const uploaded = await uploadImage(imageFile);
         if (!uploaded) {
@@ -228,11 +230,14 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
       toast.error("Beklenmeyen bir hata oluştu.");
       setSaving(false);
     }
-  };
+  }, [name, price, discountPercentage, stock, categoryId, isVisible, isOnCampaign, sortOrder, categorySortOrder, grammage, imageUrl, imageFile, uploadImage, isEditing, product?.id, supabase, router, description]);
 
   const inputClass =
     "w-full px-4 py-2.5 bg-slate-700 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all text-sm";
   const labelClass = "block text-sm font-medium text-slate-300 mb-1.5";
+
+  // Disable form while saving
+  const isDisabled = saving || uploadingImage;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
@@ -257,6 +262,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Ürün adını girin"
                   className={inputClass}
+                  disabled={isDisabled}
                   required
                 />
               </div>
@@ -270,6 +276,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                   placeholder="Ürün açıklaması..."
                   rows={3}
                   className={`${inputClass} resize-none`}
+                  disabled={isDisabled}
                 />
               </div>
 
@@ -287,6 +294,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                     min="0"
                     step="0.01"
                     className={inputClass}
+                    disabled={isDisabled}
                     required
                   />
                 </div>
@@ -301,6 +309,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                     max="100"
                     step="0.01"
                     className={inputClass}
+                    disabled={isDisabled}
                   />
                 </div>
               </div>
@@ -316,6 +325,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                     placeholder="0"
                     min="0"
                     className={inputClass}
+                    disabled={isDisabled}
                   />
                 </div>
                 <div>
@@ -328,6 +338,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                     min="0"
                     step="0.01"
                     className={inputClass}
+                    disabled={isDisabled}
                   />
                 </div>
               </div>
@@ -347,6 +358,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}
                   className={inputClass}
+                  disabled={isDisabled}
                 >
                   <option value="">Kategori seçin</option>
                   {categories
@@ -392,6 +404,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                     placeholder="0"
                     min="0"
                     className={inputClass}
+                    disabled={isDisabled}
                   />
                 </div>
                 <div>
@@ -403,6 +416,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                     placeholder="0"
                     min="0"
                     className={inputClass}
+                    disabled={isDisabled}
                   />
                 </div>
               </div>
@@ -433,7 +447,8 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                 <button
                   type="button"
                   onClick={handleRemoveImage}
-                  className="absolute top-2 right-2 p-1.5 bg-red-500 hover:bg-red-600 rounded-lg text-white transition-all"
+                  disabled={isDisabled}
+                  className="absolute top-2 right-2 p-1.5 bg-red-500 hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white transition-all"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -448,19 +463,19 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => !isDisabled && fileInputRef.current?.click()}
                 className={`w-full aspect-square rounded-xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all ${
                   isDragging
                     ? "border-emerald-400 bg-emerald-500/10"
                     : "border-slate-600 hover:border-slate-500 hover:bg-slate-700/50"
-                }`}
+                } ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
               >
                 <Upload
                   className={`w-8 h-8 mb-2 ${isDragging ? "text-emerald-400" : "text-slate-400"}`}
                 />
                 <p className="text-slate-400 text-sm text-center px-4">
                   Resim yüklemek için tıklayın
-                  <br />
+                  <br /> 
                   <span className="text-slate-500 text-xs">
                     veya sürükleyip bırakın
                   </span>
@@ -477,6 +492,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
               accept="image/*"
               onChange={handleFileChange}
               className="hidden"
+              disabled={isDisabled}
             />
 
             {!imagePreview && (
@@ -491,6 +507,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                   }}
                   placeholder="https://..."
                   className={inputClass}
+                  disabled={isDisabled}
                 />
               </div>
             )}
@@ -501,7 +518,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
             <h2 className="text-base font-semibold text-white mb-4">Durum</h2>
             <div className="space-y-3">
               {/* Görünürlük */}
-              <label className="flex items-center justify-between cursor-pointer p-3 rounded-xl hover:bg-slate-700/50 transition-all">
+              <label className={`flex items-center justify-between cursor-pointer p-3 rounded-xl transition-all ${isDisabled ? "opacity-50 pointer-events-none" : "hover:bg-slate-700/50"}`}>
                 <div>
                   <p className="text-white text-sm font-medium">Görünür</p>
                   <p className="text-slate-400 text-xs">
@@ -509,10 +526,10 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                   </p>
                 </div>
                 <div
-                  onClick={() => setIsVisible(!isVisible)}
+                  onClick={() => !isDisabled && setIsVisible(!isVisible)}
                   className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${
                     isVisible ? "bg-emerald-500" : "bg-slate-600"
-                  }`}
+                  } ${isDisabled ? "cursor-not-allowed" : ""}`}
                 >
                   <span
                     className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
@@ -523,7 +540,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
               </label>
 
               {/* Kampanya */}
-              <label className="flex items-center justify-between cursor-pointer p-3 rounded-xl hover:bg-slate-700/50 transition-all">
+              <label className={`flex items-center justify-between cursor-pointer p-3 rounded-xl transition-all ${isDisabled ? "opacity-50 pointer-events-none" : "hover:bg-slate-700/50"}`}>
                 <div>
                   <p className="text-white text-sm font-medium">Kampanyalı</p>
                   <p className="text-slate-400 text-xs">
@@ -531,10 +548,10 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                   </p>
                 </div>
                 <div
-                  onClick={() => setIsOnCampaign(!isOnCampaign)}
+                  onClick={() => !isDisabled && setIsOnCampaign(!isOnCampaign)}
                   className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${
                     isOnCampaign ? "bg-orange-500" : "bg-slate-600"
-                  }`}
+                  } ${isDisabled ? "cursor-not-allowed" : ""}`}
                 >
                   <span
                     className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
@@ -551,7 +568,8 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
             <button
               type="button"
               onClick={() => router.back()}
-              className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
+              disabled={saving}
+              className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-xl transition-all flex items-center justify-center gap-2 text-sm"
             >
               <X className="w-4 h-4" />
               İptal
@@ -561,10 +579,10 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
               disabled={saving || uploadingImage}
               className="flex-1 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-800 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2 text-sm shadow-lg hover:shadow-emerald-500/20"
             >
-              {saving ? (
+              {saving || uploadingImage ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Kaydediliyor...
+                  {uploadingImage ? "Resim Yükleniyor..." : "Kaydediliyor..."}
                 </>
               ) : (
                 <>
@@ -579,5 +597,3 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
     </form>
   );
 }
-
-
