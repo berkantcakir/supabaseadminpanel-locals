@@ -5,6 +5,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase/client";
 import toast from "react-hot-toast";
+import JSZip from "jszip";
+import { saveAs } from "file-saver";
 import {
   Edit,
   Trash2,
@@ -17,6 +19,7 @@ import {
   AlertTriangle,
   Package,
   Loader2,
+  Download,
 } from "lucide-react";
 
 interface Product {
@@ -43,6 +46,12 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [sortField, setSortField] = useState<"name" | "price" | "stock" | "sort_order">("sort_order");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  // Multi-select & Download states
+  const [selectedProducts, setSelectedProducts] = useState<Record<string, { id: string, name: string, image_url: string | null }>>({});
+  const selectedCount = Object.keys(selectedProducts).length;
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState<{ current: number; total: number } | null>(null);
 
   // Loading state for button operations - prevents double clicks
   const [loadingProductId, setLoadingProductId] = useState<string | null>(null);
@@ -207,6 +216,120 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
     }
   }, [supabase, products, loadingProductId]);
 
+  const sanitizeFileName = (name: string) => {
+    const clean = name.replace(/[\/\?*:"<>|]/g, "_").trim();
+    return clean || "isimsiz";
+  };
+
+  const handleDownloadImages = async () => {
+    const productsWithImages = Object.values(selectedProducts).filter((p) => p.image_url);
+    if (productsWithImages.length === 0) {
+      toast.error("Seçili ürünlerin hiçbirinde resim yok.");
+      return;
+    }
+
+    setIsDownloading(true);
+    setDownloadProgress({ current: 0, total: productsWithImages.length });
+
+    const zip = new JSZip();
+    const nameCount: Record<string, number> = {};
+
+    for (const product of productsWithImages) {
+      try {
+        const response = await fetch(product.image_url!);
+        if (!response.ok) throw new Error("Ağ hatası");
+
+        const blob = await response.blob();
+
+        const cleanName = sanitizeFileName(product.name);
+
+        // Parse extension
+        let ext = ".jpg";
+        try {
+          const url = new URL(product.image_url!);
+          const path = url.pathname;
+          const extractedExt = path.substring(path.lastIndexOf("."));
+          if (extractedExt && extractedExt.length >= 3 && extractedExt.length <= 5 && /^\.[a-zA-Z0-9]+$/.test(extractedExt)) {
+            ext = extractedExt;
+          }
+        } catch (e) {
+          // ignore invalid URLs, use .jpg
+        }
+
+        let fileName = `${cleanName}${ext}`;
+        if (nameCount[fileName]) {
+          nameCount[fileName]++;
+          fileName = `${cleanName}_${nameCount[fileName]}${ext}`;
+        } else {
+          nameCount[fileName] = 1;
+        }
+
+        zip.file(fileName, blob);
+
+        setDownloadProgress((prev) =>
+          prev ? { ...prev, current: prev.current + 1 } : null
+        );
+      } catch (e) {
+        console.error(`Resim indirilemedi: ${product.name}`, e);
+      }
+    }
+
+    try {
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, "urunler-resimleri.zip");
+      toast.success(`${productsWithImages.length} resim başarıyla indirildi!`);
+    } catch (e) {
+      console.error("ZIP oluşturulamadı", e);
+      toast.error("ZIP dosyası oluşturulurken bir hata oluştu.");
+    } finally {
+      setIsDownloading(false);
+      setDownloadProgress(null);
+    }
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    const newSelected = { ...selectedProducts };
+
+    if (!checked) {
+      filtered.forEach((p) => {
+        delete newSelected[p.id];
+      });
+      setSelectedProducts(newSelected);
+      return;
+    }
+
+    let currentSize = Object.keys(newSelected).length;
+
+    for (const p of filtered) {
+      if (!newSelected[p.id]) {
+        if (currentSize >= 50) {
+          toast.error("En fazla 50 ürün seçebilirsiniz.");
+          break;
+        }
+        newSelected[p.id] = { id: p.id, name: p.name, image_url: p.image_url };
+        currentSize++;
+      }
+    }
+
+    setSelectedProducts(newSelected);
+  };
+
+  const handleSelectProduct = (product: Product, checked: boolean) => {
+    const newSelected = { ...selectedProducts };
+    if (checked) {
+      if (Object.keys(newSelected).length >= 50) {
+        toast.error("En fazla 50 ürün seçebilirsiniz.");
+        return;
+      }
+      newSelected[product.id] = { id: product.id, name: product.name, image_url: product.image_url };
+    } else {
+      delete newSelected[product.id];
+    }
+    setSelectedProducts(newSelected);
+  };
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every((p) => !!selectedProducts[p.id]);
+
   const SortIcon = memo(({ field }: { field: typeof sortField }) => {
     if (sortField !== field) return <ChevronUp className="w-3 h-3 opacity-30" />;
     return sortDir === "asc" ? (
@@ -219,20 +342,42 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
 
   return (
     <div>
-      {/* Arama */}
-      <div className="relative mb-5">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-        <input
-          type="text"
-          placeholder="Ürün veya kategori ara..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-        />
-        {isSearching && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-emerald-400">
-            Aranıyor...
-          </span>
+      {/* Arama ve İndirme */}
+      <div className="flex flex-col md:flex-row gap-3 mb-5">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            placeholder="Ürün veya kategori ara..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+          />
+          {isSearching && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-emerald-400">
+              Aranıyor...
+            </span>
+          )}
+        </div>
+
+        {selectedCount > 0 && (
+          <button
+            onClick={handleDownloadImages}
+            disabled={isDownloading}
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-blue-500/20 text-sm whitespace-nowrap"
+          >
+            {isDownloading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                İndiriliyor... {downloadProgress?.current}/{downloadProgress?.total}
+              </>
+            ) : (
+              <>
+                <Download className="w-5 h-5" />
+                Resimleri İndir ({selectedCount} seçili)
+              </>
+            )}
+          </button>
         )}
       </div>
 
@@ -242,6 +387,14 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-700 bg-slate-900/60 backdrop-blur">
+                <th className="text-left px-4 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    onChange={(e) => handleSelectAll(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500/20"
+                  />
+                </th>
                 <th className="text-left px-4 py-3 text-slate-400 text-sm font-medium w-16">
                   Resim
                 </th>
@@ -291,7 +444,7 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="text-center py-16 text-slate-400">
+                  <td colSpan={9} className="text-center py-16 text-slate-400">
                     <Package className="w-12 h-12 mx-auto mb-3 opacity-30" />
                     <p>Ürün bulunamadı</p>
                   </td>
@@ -300,8 +453,18 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
                 filtered.map((product) => (
                   <tr
                     key={product.id}
-                    className="border-b border-slate-700/50 hover:bg-slate-700/20 transition-colors"
+                    className={`border-b border-slate-700/50 transition-colors ${selectedProducts[product.id] ? "bg-emerald-500/5" : "hover:bg-slate-700/20"}`}
                   >
+                    {/* Checkbox */}
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={!!selectedProducts[product.id]}
+                        onChange={(e) => handleSelectProduct(product, e.target.checked)}
+                        className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-emerald-500 focus:ring-emerald-500/20 cursor-pointer"
+                      />
+                    </td>
+
                     {/* Resim */}
                     <td className="px-4 py-3">
                       <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-700 flex items-center justify-center flex-shrink-0">
@@ -361,17 +524,16 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
                     {/* Stok */}
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex items-center gap-1 text-sm font-medium ${
-                          product.stock === 0
-                            ? "text-red-400"
-                            : product.stock < 5
+                        className={`inline-flex items-center gap-1 text-sm font-medium ${product.stock === 0
+                          ? "text-red-400"
+                          : product.stock < 5
                             ? "text-orange-400"
                             : "text-emerald-400"
-                        }`}
+                          }`}
                       >
                         {product.stock === 0 && (
                           <AlertTriangle className="w-3 h-3" />
-)}
+                        )}
                         {product.stock}
                       </span>
                     </td>
@@ -381,11 +543,10 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
                       <button
                         onClick={() => handleToggleVisible(product)}
                         disabled={loadingProductId === product.id}
-                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
-                          product.is_visible
-                            ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
-                            : "bg-slate-700 text-slate-400 hover:bg-slate-600"
-                        } ${loadingProductId === product.id ? "opacity-50 cursor-not-allowed" : ""}`}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${product.is_visible
+                          ? "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
+                          : "bg-slate-700 text-slate-400 hover:bg-slate-600"
+                          } ${loadingProductId === product.id ? "opacity-50 cursor-not-allowed" : ""}`}
                       >
                         {loadingProductId === product.id ? (
                           <Loader2 className="w-3 h-3 animate-spin" />
@@ -415,7 +576,7 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
                       <div className="flex items-center justify-end gap-2">
                         <Link
                           href={`/admin/products/${product.id}/edit`}
-className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
+                          className="p-2 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-all"
                           title="Düzenle"
                         >
                           <Edit className="w-4 h-4" />
