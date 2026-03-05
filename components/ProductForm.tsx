@@ -13,6 +13,7 @@ import {
   Loader2,
   ImageIcon,
   Package,
+  Search,
 } from "lucide-react";
 
 interface Category {
@@ -56,6 +57,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
   );
   const [stock, setStock] = useState(product?.stock?.toString() ?? "0");
   const [categoryId, setCategoryId] = useState(product?.category_id ?? "");
+  const [categorySearch, setCategorySearch] = useState("");
   const [isVisible, setIsVisible] = useState(product?.is_visible ?? true);
   const [isOnCampaign, setIsOnCampaign] = useState(
     product?.is_on_campaign ?? false
@@ -354,43 +356,75 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
               {/* Kategori */}
               <div>
                 <label className={labelClass}>Kategori</label>
-                <select
-                  value={categoryId}
-                  onChange={(e) => setCategoryId(e.target.value)}
-                  className={inputClass}
-                  disabled={isDisabled}
-                >
-                  <option value="">Kategori seçin</option>
-                  {categories
-                    .filter((c) => !c.parent_id)
-                    .map((parent) => (
-                      <optgroup key={parent.id} label={parent.name}>
-                        <option value={parent.id}>{parent.name}</option>
+                <div className="space-y-3">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      type="text"
+                      value={categorySearch}
+                      onChange={(e) => setCategorySearch(e.target.value)}
+                      placeholder="Kategori ara..."
+                      className={`${inputClass} pl-10`}
+                      disabled={isDisabled}
+                    />
+                  </div>
+                  <select
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                    className={inputClass}
+                    disabled={isDisabled}
+                  >
+                    <option value="">Kategori seçin</option>
+                    {categorySearch.trim() !== "" ? (
+                      categories
+                        .filter((c) =>
+                          c.name.toLowerCase().includes(categorySearch.toLowerCase())
+                        )
+                        .map((c) => {
+                          const parentName = c.parent_id
+                            ? categories.find(p => p.id === c.parent_id)?.name
+                            : null;
+                          return (
+                            <option key={`search-${c.id}`} value={c.id}>
+                              {parentName ? `${parentName} > ${c.name}` : c.name}
+                            </option>
+                          );
+                        })
+                    ) : (
+                      <>
                         {categories
-                          .filter((c) => c.parent_id === parent.id)
-                          .map((child) => (
-                            <option key={child.id} value={child.id}>
-                              &nbsp;&nbsp;↳ {child.name}
+                          .filter((c) => !c.parent_id)
+                          .map((parent) => (
+                            <optgroup key={parent.id} label={parent.name}>
+                              <option value={parent.id}>{parent.name}</option>
+                              {categories
+                                .filter((c) => c.parent_id === parent.id)
+                                .map((child) => (
+                                  <option key={child.id} value={child.id}>
+                                    &nbsp;&nbsp;↳ {child.name}
+                                  </option>
+                                ))}
+                            </optgroup>
+                          ))}
+                        {/* Üst kategorisi olmayanlar */}
+                        {categories
+                          .filter(
+                            (c) =>
+                              !c.parent_id &&
+                              !categories.some((p) => p.parent_id === c.id)
+                          )
+                          .filter(
+                            (c) => !categories.some((ch) => ch.parent_id === c.id)
+                          )
+                          .map((c) => (
+                            <option key={`flat-${c.id}`} value={c.id}>
+                              {c.name}
                             </option>
                           ))}
-                      </optgroup>
-                    ))}
-                  {/* Üst kategorisi olmayanlar */}
-                  {categories
-                    .filter(
-                      (c) =>
-                        !c.parent_id &&
-                        !categories.some((p) => p.parent_id === c.id)
-                    )
-                    .filter(
-                      (c) => !categories.some((ch) => ch.parent_id === c.id)
-                    )
-                    .map((c) => (
-                      <option key={`flat-${c.id}`} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                </select>
+                      </>
+                    )}
+                  </select>
+                </div>
               </div>
 
               {/* Sıra */}
@@ -464,18 +498,17 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onClick={() => !isDisabled && fileInputRef.current?.click()}
-                className={`w-full aspect-square rounded-xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all ${
-                  isDragging
+                className={`w-full aspect-square rounded-xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all ${isDragging
                     ? "border-emerald-400 bg-emerald-500/10"
                     : "border-slate-600 hover:border-slate-500 hover:bg-slate-700/50"
-                } ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
+                  } ${isDisabled ? "opacity-50 cursor-not-allowed" : ""}`}
               >
                 <Upload
                   className={`w-8 h-8 mb-2 ${isDragging ? "text-emerald-400" : "text-slate-400"}`}
                 />
                 <p className="text-slate-400 text-sm text-center px-4">
                   Resim yüklemek için tıklayın
-                  <br /> 
+                  <br />
                   <span className="text-slate-500 text-xs">
                     veya sürükleyip bırakın
                   </span>
@@ -527,14 +560,12 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                 </div>
                 <div
                   onClick={() => !isDisabled && setIsVisible(!isVisible)}
-                  className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${
-                    isVisible ? "bg-emerald-500" : "bg-slate-600"
-                  } ${isDisabled ? "cursor-not-allowed" : ""}`}
+                  className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${isVisible ? "bg-emerald-500" : "bg-slate-600"
+                    } ${isDisabled ? "cursor-not-allowed" : ""}`}
                 >
                   <span
-                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                      isVisible ? "translate-x-5" : "translate-x-0"
-                    }`}
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${isVisible ? "translate-x-5" : "translate-x-0"
+                      }`}
                   />
                 </div>
               </label>
@@ -549,14 +580,12 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                 </div>
                 <div
                   onClick={() => !isDisabled && setIsOnCampaign(!isOnCampaign)}
-                  className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${
-                    isOnCampaign ? "bg-orange-500" : "bg-slate-600"
-                  } ${isDisabled ? "cursor-not-allowed" : ""}`}
+                  className={`relative w-11 h-6 rounded-full transition-colors cursor-pointer ${isOnCampaign ? "bg-orange-500" : "bg-slate-600"
+                    } ${isDisabled ? "cursor-not-allowed" : ""}`}
                 >
                   <span
-                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${
-                      isOnCampaign ? "translate-x-5" : "translate-x-0"
-                    }`}
+                    className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${isOnCampaign ? "translate-x-5" : "translate-x-0"
+                      }`}
                   />
                 </div>
               </label>

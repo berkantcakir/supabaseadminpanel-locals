@@ -58,7 +58,7 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
 
   const supabase = createClient();
 
-  // Sunucu fonksiyonu ile arama (search_products_v2)
+  // Doğrudan Supabase ilike sorgusu ile arama
   useEffect(() => {
     // 2 karakterden kısa ise, server araması yapma
     if (search.trim().length < 2) {
@@ -72,41 +72,85 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
 
     const timeout = setTimeout(async () => {
       try {
-        const { data, error } = await supabase.rpc("search_products_v2", {
-          search_query: search.trim(),
-          market_id_param: null, // Tüm marketler için; gerekirse burada market_id gönder
-          limit_param: 50,
-          offset_param: 0,
-        });
+        const searchTerm = search.trim();
+
+        // Önce ürün adına göre ara
+        const { data: nameResults, error: nameError } = await supabase
+          .from("products")
+          .select(`
+            *,
+            categories (
+              id,
+              name
+            )
+          `)
+          .ilike("name", `%${searchTerm}%`)
+          .order("sort_order", { ascending: true })
+          .order("id", { ascending: true })
+          .limit(50);
 
         if (!active) return;
 
-        if (error) {
-          console.error("search_products_v2 error:", error);
+        if (nameError) {
+          console.error("Product name search error:", nameError);
           setIsSearching(false);
           return;
         }
 
-        const mapped: Product[] =
-          (data ?? []).map((row: any) => ({
-            id: row.id,
-            name: row.name,
-            image_url: row.image_url,
-            stock: row.stock,
-            price: Number(row.price),
-            discount_percentage: row.discount_percentage,
-            is_visible: row.is_visible,
-            is_on_campaign: row.is_on_campaign,
-            sort_order: row.sort_order,
-            categories: row.category
-              ? { id: row.category_id ?? "", name: row.category }
-              : null,
-          })) ?? [];
+        // Kategori adına göre de ara
+        const { data: categoryResults, error: categoryError } = await supabase
+          .from("products")
+          .select(`
+            *,
+            categories!inner (
+              id,
+              name
+            )
+          `)
+          .ilike("categories.name", `%${searchTerm}%`)
+          .order("sort_order", { ascending: true })
+          .order("id", { ascending: true })
+          .limit(50);
+
+        if (!active) return;
+
+        if (categoryError) {
+          console.error("Category search error:", categoryError);
+          // Kategori araması hata verirse sadece isim sonuçlarını göster
+        }
+
+        // Sonuçları birleştir ve duplikasyonu önle
+        const allResults = [...(nameResults ?? [])];
+        const existingIds = new Set(allResults.map((p: any) => p.id));
+
+        if (categoryResults) {
+          for (const item of categoryResults) {
+            if (!existingIds.has((item as any).id)) {
+              allResults.push(item as any);
+              existingIds.add((item as any).id);
+            }
+          }
+        }
+
+        const mapped: Product[] = allResults.map((row: any) => ({
+          id: row.id,
+          name: row.name,
+          image_url: row.image_url,
+          stock: row.stock,
+          price: Number(row.price),
+          discount_percentage: row.discount_percentage,
+          is_visible: row.is_visible,
+          is_on_campaign: row.is_on_campaign,
+          sort_order: row.sort_order,
+          categories: row.categories
+            ? { id: row.categories.id, name: row.categories.name }
+            : null,
+        }));
 
         setProducts(mapped);
         setIsSearching(false);
       } catch (e) {
-        console.error("search_products_v2 exception:", e);
+        console.error("Product search exception:", e);
         if (active) setIsSearching(false);
       }
     }, 350); // küçük bir debounce
@@ -117,13 +161,13 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
     };
   }, [search, supabase, initialProducts]);
 
-  const filtered = products
+  const filtered = [...products]
     .sort((a, b) => {
       const dir = sortDir === "asc" ? 1 : -1;
-      if (sortField === "name") return a.name.localeCompare(b.name) * dir;
-      if (sortField === "price") return (a.price - b.price) * dir;
-      if (sortField === "stock") return (a.stock - b.stock) * dir;
-      return (a.sort_order - b.sort_order) * dir;
+      if (sortField === "name") return (a.name || "").localeCompare(b.name || "") * dir;
+      if (sortField === "price") return ((a.price || 0) - (b.price || 0)) * dir;
+      if (sortField === "stock") return ((a.stock || 0) - (b.stock || 0)) * dir;
+      return ((a.sort_order || 0) - (b.sort_order || 0)) * dir;
     });
 
   const handleSort = useCallback((field: typeof sortField) => {
@@ -287,6 +331,80 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
     }
   };
 
+  const handleDownloadAllImages = async () => {
+    setIsDownloading(true);
+    setDownloadProgress({ current: 0, total: 0 });
+
+    try {
+      const { data: allProducts, error } = await supabase
+        .from("products")
+        .select("id, name, image_url")
+        .not("image_url", "is", null);
+
+      if (error) throw new Error(error.message);
+
+      const productsWithImages = allProducts || [];
+      if (productsWithImages.length === 0) {
+        toast.error("Veritabanında resimli ürün bulunamadı.");
+        setIsDownloading(false);
+        setDownloadProgress(null);
+        return;
+      }
+
+      setDownloadProgress({ current: 0, total: productsWithImages.length });
+
+      const zip = new JSZip();
+      const nameCount: Record<string, number> = {};
+
+      for (const product of productsWithImages) {
+        if (!product.image_url) continue;
+        try {
+          const response = await fetch(product.image_url!);
+          if (!response.ok) throw new Error("Ağ hatası");
+
+          const blob = await response.blob();
+          const cleanName = sanitizeFileName(product.name);
+
+          let ext = ".jpg";
+          try {
+            const url = new URL(product.image_url!);
+            const path = url.pathname;
+            const extractedExt = path.substring(path.lastIndexOf("."));
+            if (extractedExt && extractedExt.length >= 3 && extractedExt.length <= 5 && /^\.[a-zA-Z0-9]+$/.test(extractedExt)) {
+              ext = extractedExt;
+            }
+          } catch (e) { }
+
+          let fileName = `${cleanName}${ext}`;
+          if (nameCount[fileName]) {
+            nameCount[fileName]++;
+            fileName = `${cleanName}_${nameCount[fileName]}${ext}`;
+          } else {
+            nameCount[fileName] = 1;
+          }
+
+          zip.file(fileName, blob);
+
+          setDownloadProgress((prev) =>
+            prev ? { ...prev, current: prev.current + 1 } : null
+          );
+        } catch (e) {
+          console.error(`Resim indirilemedi: ${product.name}`, e);
+        }
+      }
+
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, "tum-urunler-resimleri.zip");
+      toast.success(`${productsWithImages.length} resim başarıyla indirildi!`);
+    } catch (e) {
+      console.error("Tüm resimler indirilirken hata oluştu", e);
+      toast.error("İndirme işlemi sırasında bir hata oluştu.");
+    } finally {
+      setIsDownloading(false);
+      setDownloadProgress(null);
+    }
+  };
+
   const handleSelectAll = (checked: boolean) => {
     const newSelected = { ...selectedProducts };
 
@@ -302,10 +420,6 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
 
     for (const p of filtered) {
       if (!newSelected[p.id]) {
-        if (currentSize >= 50) {
-          toast.error("En fazla 50 ürün seçebilirsiniz.");
-          break;
-        }
         newSelected[p.id] = { id: p.id, name: p.name, image_url: p.image_url };
         currentSize++;
       }
@@ -317,10 +431,6 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
   const handleSelectProduct = (product: Product, checked: boolean) => {
     const newSelected = { ...selectedProducts };
     if (checked) {
-      if (Object.keys(newSelected).length >= 50) {
-        toast.error("En fazla 50 ürün seçebilirsiniz.");
-        return;
-      }
       newSelected[product.id] = { id: product.id, name: product.name, image_url: product.image_url };
     } else {
       delete newSelected[product.id];
@@ -360,25 +470,34 @@ export default function ProductsTable({ products: initialProducts }: ProductsTab
           )}
         </div>
 
-        {selectedCount > 0 && (
+        <div className="flex gap-2">
+          {selectedCount > 0 && (
+            <button
+              onClick={handleDownloadImages}
+              disabled={isDownloading}
+              className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-blue-500/20 text-sm whitespace-nowrap"
+            >
+              <Download className="w-5 h-5" />
+              Seçilenleri İndir ({selectedCount})
+            </button>
+          )}
+
           <button
-            onClick={handleDownloadImages}
+            onClick={handleDownloadAllImages}
             disabled={isDownloading}
-            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-blue-500/20 text-sm whitespace-nowrap"
+            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-800 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-all shadow-lg hover:shadow-emerald-500/20 text-sm whitespace-nowrap"
           >
-            {isDownloading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                İndiriliyor... {downloadProgress?.current}/{downloadProgress?.total}
-              </>
-            ) : (
-              <>
-                <Download className="w-5 h-5" />
-                Resimleri İndir ({selectedCount} seçili)
-              </>
-            )}
+            <Download className="w-5 h-5" />
+            Tümünü İndir
           </button>
-        )}
+
+          {isDownloading && downloadProgress && (
+            <div className="flex items-center gap-2 text-sm text-emerald-400 font-medium ml-2">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              {downloadProgress.current} / {downloadProgress.total}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Tablo */}

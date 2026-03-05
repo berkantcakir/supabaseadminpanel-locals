@@ -13,7 +13,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
   const supabase = await createClient();
   const { page } = await searchParams;
 
-  const pageSize = 20;
+  const pageSize = 50;
   const currentPage = Math.max(1, Number(page) || 1);
 
   // Toplam kayıt sayısı
@@ -40,6 +40,7 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
     `
     )
     .order("sort_order", { ascending: true })
+    .order("id", { ascending: true })
     .range(from, to);
 
   if (error) {
@@ -87,11 +88,10 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
             <Link
               href={hasPrev ? `/admin/products?page=${safePage - 1}` : "#"}
               aria-disabled={!hasPrev}
-              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm border transition-all ${
-                hasPrev
-                  ? "border-slate-600 text-slate-200 hover:bg-slate-700"
-                  : "border-slate-800 text-slate-500 cursor-not-allowed"
-              }`}
+              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm border transition-all ${hasPrev
+                ? "border-slate-600 text-slate-200 hover:bg-slate-700"
+                : "border-slate-800 text-slate-500 cursor-not-allowed"
+                }`}
             >
               <ChevronLeft className="w-4 h-4" />
               Önceki
@@ -116,11 +116,10 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
                     <Link
                       key={pageNumber}
                       href={`/admin/products?page=${pageNumber}`}
-                      className={`w-8 h-8 inline-flex items-center justify-center rounded-lg text-sm transition-all ${
-                        isActive
-                          ? "bg-emerald-500 text-white"
-                          : "text-slate-300 hover:bg-slate-700"
-                      }`}
+                      className={`w-8 h-8 inline-flex items-center justify-center rounded-lg text-sm transition-all ${isActive
+                        ? "bg-emerald-500 text-white"
+                        : "text-slate-300 hover:bg-slate-700"
+                        }`}
                     >
                       {pageNumber}
                     </Link>
@@ -132,11 +131,10 @@ export default async function ProductsPage({ searchParams }: ProductsPageProps) 
             <Link
               href={hasNext ? `/admin/products?page=${safePage + 1}` : "#"}
               aria-disabled={!hasNext}
-              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm border transition-all ${
-                hasNext
-                  ? "border-slate-600 text-slate-200 hover:bg-slate-700"
-                  : "border-slate-800 text-slate-500 cursor-not-allowed"
-              }`}
+              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm border transition-all ${hasNext
+                ? "border-slate-600 text-slate-200 hover:bg-slate-700"
+                : "border-slate-800 text-slate-500 cursor-not-allowed"
+                }`}
             >
               Sonraki
               <ChevronRight className="w-4 h-4" />
