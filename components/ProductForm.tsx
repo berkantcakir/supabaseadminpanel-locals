@@ -38,6 +38,7 @@ interface ProductFormProps {
     sort_order: number;
     category_sort_order: number | null;
     grammage: number | null;
+    barcode: string | null;
   };
 }
 
@@ -71,6 +72,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
   const [grammage, setGrammage] = useState(
     product?.grammage?.toString() ?? ""
   );
+  const [barcode, setBarcode] = useState(product?.barcode ?? "");
 
   // Image state
   const [imageUrl, setImageUrl] = useState(product?.image_url ?? "");
@@ -200,6 +202,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
           ? Number(categorySortOrder)
           : null,
         grammage: grammage ? Number(grammage) : null,
+        barcode: barcode.trim() || null,
         updated_at: new Date().toISOString(),
       };
 
@@ -232,7 +235,7 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
       toast.error("Beklenmeyen bir hata oluştu.");
       setSaving(false);
     }
-  }, [name, price, discountPercentage, stock, categoryId, isVisible, isOnCampaign, sortOrder, categorySortOrder, grammage, imageUrl, imageFile, uploadImage, isEditing, product?.id, supabase, router, description]);
+  }, [name, price, discountPercentage, stock, categoryId, isVisible, isOnCampaign, sortOrder, categorySortOrder, grammage, barcode, imageUrl, imageFile, uploadImage, isEditing, product?.id, supabase, router, description]);
 
   const inputClass =
     "w-full px-4 py-2.5 bg-slate-700 border border-slate-600 rounded-xl text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all text-sm";
@@ -343,6 +346,20 @@ export default function ProductForm({ categories, product }: ProductFormProps) {
                     disabled={isDisabled}
                   />
                 </div>
+              </div>
+
+              {/* Barkod */}
+              <div>
+                <label className={labelClass}>Barkod</label>
+                <input
+                  type="text"
+                  value={barcode}
+                  onChange={(e) => setBarcode(e.target.value)}
+                  placeholder="Örn: 8690000000000"
+                  maxLength={64}
+                  className={inputClass}
+                  disabled={isDisabled}
+                />
               </div>
             </div>
           </div>

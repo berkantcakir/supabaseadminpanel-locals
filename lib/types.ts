@@ -15,6 +15,7 @@ export interface Product {
   market_id: string | null;
   grammage: number | null;
   is_on_campaign: boolean;
+  barcode: string | null;
 }
 
 export interface Category {
